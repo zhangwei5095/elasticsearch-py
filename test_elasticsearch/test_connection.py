@@ -6,46 +6,34 @@ from requests.auth import AuthBase
 
 from elasticsearch.exceptions import TransportError, ConflictError, RequestError, NotFoundError
 from elasticsearch.connection import RequestsHttpConnection, \
-    Urllib3HttpConnection, THRIFT_AVAILABLE, ThriftConnection
+    Urllib3HttpConnection
 
-from .test_cases import TestCase, SkipTest
+from .test_cases import TestCase
 
-class TestThriftConnection(TestCase):
-    def setUp(self):
-        if not THRIFT_AVAILABLE:
-            raise SkipTest('Thrift is not available.')
-        super(TestThriftConnection, self).setUp()
-
-    def test_use_ssl_uses_ssl_socket(self):
-        from thrift.transport import TSSLSocket
-        con = ThriftConnection(use_ssl=True)
-        self.assertIs(con._tsocket_class, TSSLSocket.TSSLSocket)
-
-    def test_use_normal_tsocket_by_default(self):
-        from thrift.transport import TSocket
-        con = ThriftConnection()
-        self.assertIs(con._tsocket_class, TSocket.TSocket)
-
-    def test_timeout_set(self):
-        con = ThriftConnection(timeout=42)
-        self.assertEquals(42, con.timeout)
 
 class TestUrllib3Connection(TestCase):
     def test_timeout_set(self):
         con = Urllib3HttpConnection(timeout=42)
         self.assertEquals(42, con.timeout)
 
+    def test_keep_alive_is_on_by_default(self):
+        con = Urllib3HttpConnection()
+        self.assertEquals({'connection': 'keep-alive'}, con.headers)
+
     def test_http_auth(self):
         con = Urllib3HttpConnection(http_auth='username:secret')
-        self.assertEquals({'authorization': 'Basic dXNlcm5hbWU6c2VjcmV0'}, con.headers)
+        self.assertEquals({'authorization': 'Basic dXNlcm5hbWU6c2VjcmV0',
+            'connection': 'keep-alive'}, con.headers)
 
     def test_http_auth_tuple(self):
         con = Urllib3HttpConnection(http_auth=('username', 'secret'))
-        self.assertEquals({'authorization': 'Basic dXNlcm5hbWU6c2VjcmV0'}, con.headers)
+        self.assertEquals({'authorization': 'Basic dXNlcm5hbWU6c2VjcmV0',
+            'connection': 'keep-alive'}, con.headers)
 
     def test_http_auth_list(self):
         con = Urllib3HttpConnection(http_auth=['username', 'secret'])
-        self.assertEquals({'authorization': 'Basic dXNlcm5hbWU6c2VjcmV0'}, con.headers)
+        self.assertEquals({'authorization': 'Basic dXNlcm5hbWU6c2VjcmV0',
+            'connection': 'keep-alive'}, con.headers)
 
     def test_uses_https_if_specified(self):
         with warnings.catch_warnings(record=True) as w:
@@ -137,6 +125,12 @@ class TestRequestsConnection(TestCase):
     def test_request_error_is_returned_on_400(self):
         con = self._get_mock_connection(status_code=400)
         self.assertRaises(RequestError, con.perform_request, 'GET', '/', {}, '')
+
+    @patch('elasticsearch.connection.base.logger')
+    def test_head_with_404_doesnt_get_logged(self, logger):
+        con = self._get_mock_connection(status_code=404)
+        self.assertRaises(NotFoundError, con.perform_request, 'HEAD', '/', {}, '')
+        self.assertEquals(0, logger.warning.call_count)
 
     @patch('elasticsearch.connection.base.tracer')
     @patch('elasticsearch.connection.base.logger')

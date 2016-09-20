@@ -1,4 +1,3 @@
-import re
 import time
 from itertools import chain
 
@@ -7,9 +6,6 @@ from .connection_pool import ConnectionPool, DummyConnectionPool
 from .serializer import JSONSerializer, Deserializer, DEFAULT_SERIALIZERS
 from .exceptions import ConnectionError, TransportError, SerializationError, \
                         ConnectionTimeout, ImproperlyConfigured
-
-# get ip/port from "inet[wind/127.0.0.1:9200]"
-ADDRESS_RE = re.compile(r'/(?P<host>[\.:0-9a-f]*):(?P<port>[0-9]+)\]?$')
 
 
 def get_host_info(node_info, host):
@@ -46,7 +42,7 @@ class Transport(object):
         connection_pool_class=ConnectionPool, host_info_callback=get_host_info,
         sniff_on_start=False, sniffer_timeout=None, sniff_timeout=.1,
         sniff_on_connection_fail=False, serializer=JSONSerializer(), serializers=None,
-        default_mimetype='application/json', max_retries=3, retry_on_status=(503, 504, ),
+        default_mimetype='application/json', max_retries=3, retry_on_status=(502, 503, 504, ),
         retry_on_timeout=False, send_get_body_as='GET', **kwargs):
         """
         :arg hosts: list of dictionaries, each containing keyword arguments to
@@ -72,7 +68,7 @@ class Transport(object):
             response assume this mimetype, defaults to `'application/json'`
         :arg max_retries: maximum number of retries before an exception is propagated
         :arg retry_on_status: set of HTTP status codes on which we should retry
-            on a different node. defaults to ``(503, 504, )``
+            on a different node. defaults to ``(502, 503, 504)``
         :arg retry_on_timeout: should timeout trigger a retry on different
             node? (default `False`)
         :arg send_get_body_as: for GET requests with body this option allows
@@ -185,17 +181,20 @@ class Transport(object):
                 self.sniff_hosts()
         return self.connection_pool.get_connection()
 
-    def sniff_hosts(self, initial=False):
+    def _get_sniff_data(self, initial=False):
         """
-        Obtain a list of nodes from the cluster and create a new connection
-        pool using the information retrieved.
+        Perform the request to get sniffins information. Returns a list of
+        dictionaries (one per node) containing all the information from the
+        cluster.
 
-        To extract the node connection parameters use the ``nodes_to_host_callback``.
+        It also sets the last_sniff attribute in case of a successful attempt.
 
-        :arg initial: flag indicating if this is during startup
-            (``sniff_on_start``), ignore the ``sniff_timeout`` if ``True``
+        In rare cases it might be possible to override this method in your
+        custom Transport class to serve data from alternative source like
+        configuration management.
         """
         previous_sniff = self.last_sniff
+
         try:
             # reset last_sniff timestamp
             self.last_sniff = time.time()
@@ -217,19 +216,40 @@ class Transport(object):
             self.last_sniff = previous_sniff
             raise
 
-        hosts = []
-        address = self.connection_class.transport_schema + '_address'
-        for n in node_info['nodes'].values():
-            match = ADDRESS_RE.search(n.get(address, ''))
-            if not match:
-                continue
+        return list(node_info['nodes'].values())
 
-            host = match.groupdict()
-            if 'port' in host:
-                host['port'] = int(host['port'])
-            host = self.host_info_callback(n, host)
-            if host is not None:
-                hosts.append(host)
+    def _get_host_info(self, host_info):
+        address_key = self.connection_class.transport_schema + '_address'
+        host = {}
+        address = host_info.get(address_key, '')
+        if '/' in address:
+            host['host'], address = address.split('/', 1)
+
+        # malformed address
+        if ':' not in address:
+            return None
+
+        ip, port = address.rsplit(':', 1)
+
+        # use the ip if not overridden by publish_host
+        host.setdefault('host', ip)
+        host['port'] = int(port)
+
+        return self.host_info_callback(host_info, host)
+
+    def sniff_hosts(self, initial=False):
+        """
+        Obtain a list of nodes from the cluster and create a new connection
+        pool using the information retrieved.
+
+        To extract the node connection parameters use the ``nodes_to_host_callback``.
+
+        :arg initial: flag indicating if this is during startup
+            (``sniff_on_start``), ignore the ``sniff_timeout`` if ``True``
+        """
+        node_info = self._get_sniff_data(initial)
+
+        hosts = list(filter(None, (self._get_host_info(n) for n in node_info)))
 
         # we weren't able to get any nodes, maybe using an incompatible
         # transport_schema or host_info_callback blocked all - raise error.
@@ -307,6 +327,9 @@ class Transport(object):
                 status, headers, data = connection.perform_request(method, url, params, body, ignore=ignore, timeout=timeout)
 
             except TransportError as e:
+                if method == 'HEAD' and e.status_code == 404:
+                    return False
+
                 retry = False
                 if isinstance(e, ConnectionTimeout):
                     retry = self.retry_on_timeout
@@ -325,9 +348,17 @@ class Transport(object):
                     raise
 
             else:
+                if method == 'HEAD':
+                    return 200 <= status < 300
+
                 # connection didn't fail, confirm it's live status
                 self.connection_pool.mark_live(connection)
                 if data:
                     data = self.deserializer.loads(data, headers.get('content-type'))
-                return status, data
+                return data
 
+    def close(self):
+        """
+        Explcitly closes connections
+        """
+        self.connection_pool.close()

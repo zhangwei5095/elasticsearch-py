@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 import time
 
 from elasticsearch.transport import Transport, get_host_info
-from elasticsearch.connection import Connection, ThriftConnection
+from elasticsearch.connection import Connection
 from elasticsearch.connection_pool import DummyConnectionPool
 from elasticsearch.exceptions import ConnectionError, ImproperlyConfigured
 
@@ -29,14 +29,34 @@ CLUSTER_NODES = '''{
     "nodes" : {
         "wE_6OGBNSjGksbONNncIbg" : {
             "name" : "Nightwind",
-            "transport_address" : "inet[/127.0.0.1:9300]",
+            "transport_address" : "127.0.0.1:9300",
             "hostname" : "wind",
             "version" : "0.20.4",
-            "http_address" : "inet[/1.1.1.1:123]",
-            "thrift_address" : "/1.1.1.1:9500]"
+            "http_address" : "1.1.1.1:123",
+            "thrift_address" : "1.1.1.1:9500"
         }
     }
 }'''
+
+CLUSTER_NODE_PUBLISH_HOST = '''{
+    "ok" : true,
+    "cluster_name" : "super_cluster",
+    "nodes" : {
+        "wE_6OGBNSjGksbONNncIbg" : {
+            "name": "Thunderbird",
+            "transport_address": "obsidian/192.168.1.60:9300",
+            "host": "192.168.1.60",
+            "ip": "192.168.1.60",
+            "version": "2.1.0",
+            "build": "72cd1f1",
+            "http_address": "obsidian/192.168.1.60:9200",
+            "attributes": {
+                "testattr": "test"
+            }
+        }
+    }
+}'''
+
 
 class TestHostsInfoCallback(TestCase):
     def test_master_only_nodes_are_ignored(self):
@@ -61,7 +81,6 @@ class TestTransport(TestCase):
 
     def test_host_with_scheme_different_from_connection_fails(self):
         self.assertRaises(ImproperlyConfigured, Transport, [{'host': 'localhost', 'scheme': 'thrift'}])
-        self.assertRaises(ImproperlyConfigured, Transport, [{'host': 'localhost', 'scheme': 'http'}], connection_class=ThriftConnection)
 
     def test_request_timeout_extracted_from_params_and_passed(self):
         t = Transport([{}], connection_class=DummyConnection)
@@ -155,6 +174,14 @@ class TestTransport(TestCase):
         t.sniff_hosts()
         self.assertEquals(1, len(t.connection_pool.connections))
         self.assertEquals('http://1.1.1.1:123', t.get_connection().host)
+
+    def test_sniff_will_pick_up_published_host(self):
+        t = Transport([{'data': CLUSTER_NODE_PUBLISH_HOST}], connection_class=DummyConnection)
+        t.sniff_hosts()
+
+        self.assertEquals(1, len(t.connection_pool.connections))
+        self.assertEquals('http://obsidian:9200', t.get_connection().host)
+
 
     def test_sniff_on_start_fetches_and_uses_nodes_list_for_its_schema(self):
         class DummyThriftConnection(DummyConnection):

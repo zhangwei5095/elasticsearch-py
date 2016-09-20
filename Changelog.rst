@@ -3,10 +3,75 @@
 Changelog
 =========
 
+5.0.0 (dev)
+-----------
+
+Version compatible with elasticsearch 5.0
+
+ * added ``headers`` arg to connections to support custom http headers
+ * passing in a keyword parameter with ``None`` as value will cause that param
+   to be ignored 
+
+2.4.0 (2016-08-17)
+------------------
+
+ * ``ping`` now ignores all ``TransportError`` exceptions and just returns
+   ``False``
+ * expose ``scroll_id`` on ``ScanError``
+ * increase default size for ``scan`` helper to 1000
+
+Internal:
+
+ * changed ``Transport.perform_request`` to just return the body, not status as well.
+
+2.3.0 (2016-02-29)
+------------------
+
+ * added ``client_key`` argument to configure client certificates
+ * debug logging now includes response body even for failed requests
+
+2.2.0 (2016-01-05)
+------------------
+
+Due to change in json encoding the client will no longer mask issues with
+encoding - if you work with non-ascii data in python 2 you must use the
+``unicode`` type or have proper encoding set in your environment.
+
+ * adding additional options for ssh - ``ssl_assert_hostname`` and
+   ``ssl_assert_fingerprint`` to the default connection class
+ * fix sniffing
+
+2.1.0 (2015-10-19)
+------------------
+
+  * move multiprocessing import inside parallel bulk for Google App Engine
+
+2.0.0 (2015-10-14)
+------------------
+
+ * Elasticsearch 2.0 compatibility release
+
+1.8.0 (2015-10-14)
+------------------
+
+ * removed thrift and memcached connections, if you wish to continue using
+   those, extract the classes and use them separately.
+ * added a new, parallel version of the bulk helper using thread pools
+ * In helpers, removed ``bulk_index`` as an alias for ``bulk``. Use ``bulk``
+   instead.
+
+1.7.0 (2015-09-21)
+------------------
+
+ * elasticsearch 2.0 compatibility
+ * thrift now deprecated, to be removed in future version
+ * make sure urllib3 always uses keep-alive
+
 1.6.0 (2015-06-10)
 ------------------
 
  * Add ``indices.flush_synced`` API
+ * ``helpers.reindex`` now supports reindexing parent/child documents
 
 1.5.0 (2015-05-18)
 ------------------

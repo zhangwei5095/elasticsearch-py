@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 import sys
 import os
 
-VERSION = (1, 6, 0)
+VERSION = (5, 0, 0, 'dev')
 __version__ = VERSION
 __versionstr__ = '.'.join(map(str, VERSION))
 
@@ -27,12 +27,6 @@ tests_require = [
 # use external unittest for 2.6
 if sys.version_info[:2] == (2, 6):
     install_requires.append('unittest2')
-
-if sys.version_info[0] == 2:
-    # only require thrift if we are going to use it
-    if os.environ.get('TEST_ES_CONNECTION', None) == 'ThriftConnection':
-        tests_require.append('thrift==0.9.1')
-    tests_require.append('pylibmc==1.4.1')
 
 setup(
     name = 'elasticsearch',
